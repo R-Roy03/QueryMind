@@ -11,7 +11,7 @@ from app.routers import (
 
 app = FastAPI(
     title="QueryMind — Agentic Data Intelligence Platform",
-    description="Natural language data querying with AI agent and semantic layer. Built for Cogrion.",
+    description="Natural language data querying with AI agent, pipeline builder, and data governance.",
     version="2.0.0",
 )
 
