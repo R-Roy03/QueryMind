@@ -13,7 +13,7 @@
 
 Built with a **production-scale Brazilian E-Commerce dataset (550K+ rows)** from Kaggle, QueryMind demonstrates real-world data engineering capabilities across 7 interconnected tables.
 
-> **Live Demo:** [Coming Soon](#) <!-- Update with Vercel URL after deployment -->
+> **Live Demo:** [https://query-mind-gamma.vercel.app](https://query-mind-gamma.vercel.app)
 
 ---
 
