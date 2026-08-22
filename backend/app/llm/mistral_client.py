@@ -3,7 +3,6 @@ Mistral AI client wrapper.
 Handles all communication with the Mistral API.
 Three methods: chat (text), chat_json (parsed), chat_stream (streaming).
 """
-from mistralai import Mistral
 from app.config import settings
 import json
 import re
@@ -75,8 +74,23 @@ def _extract_json(text: str) -> dict:
 
 class MistralClient:
     def __init__(self):
-        self.client = Mistral(api_key=settings.mistral_api_key)
         self.model = settings.mistral_model
+        self._client = None
+
+    @property
+    def client(self):
+        """Construct the Mistral SDK client on first use.
+
+        The import is deliberately lazy: importing this module must not
+        require the `mistralai` package to be installed, so that services
+        which only *optionally* call the LLM (e.g. contract_validator's
+        failure diagnosis, which already falls back to []) can be imported
+        and exercised offline. Any real API call still fails loudly.
+        """
+        if self._client is None:
+            from mistralai import Mistral
+            self._client = Mistral(api_key=settings.mistral_api_key)
+        return self._client
 
     def _call_with_retry(self, **kwargs):
         """Call Mistral API with retry on rate-limit (429) errors."""

@@ -8,30 +8,81 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Contracts are defined against the live Olist schema (as loaded by
+# demo_data/seed_kaggle.sql). Table and column names match the PostgreSQL
+# database, which corrects the misspelled CSV headers (e.g. the CSV column
+# 'product_name_lenght' is loaded as 'product_name_length').
+#
+# Most rules are expected to pass at 100%. Two are deliberately kept even
+# though they fail against the real data, because they surface genuine
+# completeness gaps rather than reporting a meaningless 100%.
 DEFAULT_CONTRACTS = {
-    "orders": [
-        {"id": "r1", "column": "total_amount", "check": "gt", "value": 0, "description": "Order amount must be positive"},
-        {"id": "r2", "column": "status", "check": "in", "value": ["completed", "pending", "cancelled", "processing"], "description": "Status must be a valid value"},
-        {"id": "r3", "column": "order_date", "check": "not_null", "description": "Order date cannot be null"},
-        {"id": "r4", "column": "customer_id", "check": "not_null", "description": "Order must be linked to a customer"},
+    "olist_orders": [
+        {"id": "r1", "column": "order_id", "check": "not_null", "description": "Every order must have an ID"},
+        {"id": "r2", "column": "customer_id", "check": "not_null", "description": "Order must be linked to a customer"},
+        {"id": "r3", "column": "order_purchase_timestamp", "check": "not_null", "description": "Order must have a purchase timestamp"},
+        {"id": "r4", "column": "order_status", "check": "in",
+         "value": ["delivered", "shipped", "canceled", "unavailable", "invoiced", "processing", "created", "approved"],
+         "description": "Order status must be one of the known lifecycle states"},
+        # Known partial (~97%): undelivered/cancelled orders legitimately have
+        # no delivery date. This is a completeness signal, not corruption.
+        {"id": "r5", "column": "order_delivered_customer_date", "check": "not_null", "description": "Delivered orders should have a delivery date"},
     ],
-    "customers": [
-        {"id": "r1", "column": "email", "check": "not_null", "description": "Email is required"},
-        {"id": "r2", "column": "full_name", "check": "not_null", "description": "Customer must have a name"},
-        {"id": "r3", "column": "tier", "check": "in", "value": ["standard", "gold", "premium"], "description": "Tier must be valid"},
-        {"id": "r4", "column": "signup_date", "check": "not_null", "description": "Signup date required"},
+    "olist_customers": [
+        {"id": "r1", "column": "customer_id", "check": "not_null", "description": "Every customer row must have an ID"},
+        {"id": "r2", "column": "customer_unique_id", "check": "not_null", "description": "Customer must have a cross-order unique ID"},
+        {"id": "r3", "column": "customer_state", "check": "not_null", "description": "Customer must have a state for regional analysis"},
+        {"id": "r4", "column": "customer_zip_code_prefix", "check": "not_null", "description": "Customer must have a zip code prefix"},
     ],
-    "products": [
-        {"id": "r1", "column": "unit_price", "check": "gt", "value": 0, "description": "Price must be positive"},
-        {"id": "r2", "column": "stock_qty", "check": "gte", "value": 0, "description": "Stock cannot be negative"},
-        {"id": "r3", "column": "product_name", "check": "not_null", "description": "Product must have a name"},
+    "olist_products": [
+        {"id": "r1", "column": "product_id", "check": "not_null", "description": "Every product must have an ID"},
+        {"id": "r2", "column": "product_weight_g", "check": "gte", "value": 0, "description": "Product weight cannot be negative"},
+        # Known partial (~98%): 610 products have no category in the source data.
+        {"id": "r3", "column": "product_category_name", "check": "not_null", "description": "Product should have a category"},
     ],
-    "events": [
-        {"id": "r1", "column": "customer_id", "check": "not_null", "description": "Event must belong to a customer"},
-        {"id": "r2", "column": "event_type", "check": "not_null", "description": "Event type required"},
-        {"id": "r3", "column": "event_date", "check": "not_null", "description": "Event timestamp required"},
-    ]
+    "olist_order_items": [
+        {"id": "r1", "column": "order_id", "check": "not_null", "description": "Line item must belong to an order"},
+        {"id": "r2", "column": "product_id", "check": "not_null", "description": "Line item must reference a product"},
+        {"id": "r3", "column": "price", "check": "gt", "value": 0, "description": "Item price must be positive"},
+        {"id": "r4", "column": "freight_value", "check": "gte", "value": 0, "description": "Freight cost cannot be negative"},
+    ],
+    "olist_order_payments": [
+        {"id": "r1", "column": "order_id", "check": "not_null", "description": "Payment must belong to an order"},
+        {"id": "r2", "column": "payment_value", "check": "gte", "value": 0, "description": "Payment amount cannot be negative"},
+        {"id": "r3", "column": "payment_type", "check": "in",
+         "value": ["credit_card", "boleto", "voucher", "debit_card", "not_defined"],
+         "description": "Payment type must be a known method"},
+    ],
+    "olist_order_reviews": [
+        {"id": "r1", "column": "review_id", "check": "not_null", "description": "Every review must have an ID"},
+        {"id": "r2", "column": "order_id", "check": "not_null", "description": "Review must belong to an order"},
+        {"id": "r3", "column": "review_score", "check": "between", "value": [1, 5], "description": "Review score must be between 1 and 5"},
+    ],
 }
+
+
+def _present(col: str) -> str:
+    """SQL predicate for 'this value is actually populated'.
+
+    A bare `IS NOT NULL` is not enough. Whether a missing CSV field lands as
+    NULL or as an empty string depends entirely on how the data was loaded:
+    the production Postgres seed uses `COPY ... WITH (NULL '')` so blanks
+    become real NULLs, but a plain CSV import into SQLite/MySQL stores them
+    as ''. Against such a load `IS NOT NULL` passes vacuously and the
+    contract reports a meaningless 100%.
+
+    Treating blank-or-whitespace as missing makes the rule report the same
+    completeness number on every backend db_manager supports. The CAST is
+    needed because several checked columns are TIMESTAMP or numeric, and
+    TRIM() has no implicit cast from those on Postgres.
+    """
+    try:
+        from app.services.db_manager import db_manager
+        db_type = db_manager.db_type
+    except Exception:
+        db_type = "unknown"
+    char_type = "CHAR" if db_type == "mysql" else "VARCHAR"
+    return f"({col} IS NOT NULL AND TRIM(CAST({col} AS {char_type})) <> '')"
 
 
 def _build_check_sql(table: str, rule: dict):
@@ -40,18 +91,22 @@ def _build_check_sql(table: str, rule: dict):
     val = rule.get("value")
 
     if check == "not_null":
-        return (f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL",
+        return (f"SELECT COUNT(*) FROM {table} WHERE {_present(col)}",
                 f"SELECT COUNT(*) FROM {table}")
     elif check == "gt":
-        return (f"SELECT COUNT(*) FROM {table} WHERE CAST({col} AS DECIMAL) > {val}",
-                f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL")
+        return (f"SELECT COUNT(*) FROM {table} WHERE {_present(col)} AND CAST({col} AS DECIMAL) > {val}",
+                f"SELECT COUNT(*) FROM {table} WHERE {_present(col)}")
     elif check == "gte":
-        return (f"SELECT COUNT(*) FROM {table} WHERE CAST({col} AS DECIMAL) >= {val}",
-                f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL")
+        return (f"SELECT COUNT(*) FROM {table} WHERE {_present(col)} AND CAST({col} AS DECIMAL) >= {val}",
+                f"SELECT COUNT(*) FROM {table} WHERE {_present(col)}")
     elif check == "in":
         vals = "','".join(str(v) for v in val)
-        return (f"SELECT COUNT(*) FROM {table} WHERE {col} IN ('{vals}')",
-                f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL")
+        return (f"SELECT COUNT(*) FROM {table} WHERE {_present(col)} AND {col} IN ('{vals}')",
+                f"SELECT COUNT(*) FROM {table} WHERE {_present(col)}")
+    elif check == "between":
+        lo, hi = val
+        return (f"SELECT COUNT(*) FROM {table} WHERE {_present(col)} AND CAST({col} AS DECIMAL) BETWEEN {lo} AND {hi}",
+                f"SELECT COUNT(*) FROM {table} WHERE {_present(col)}")
     elif check == "unique":
         return (f"SELECT COUNT(DISTINCT {col}) FROM {table}",
                 f"SELECT COUNT(*) FROM {table}")
@@ -71,6 +126,12 @@ def validate_contracts(table_name: str) -> dict:
             pass_count = query_executor.run(pass_sql)['rows'][0][0]
             total_count = query_executor.run(total_sql)['rows'][0][0]
 
+            if pass_count > total_count:
+                raise ValueError(
+                    f"rule {rule['id']}: pass_count {pass_count} exceeds total_count "
+                    f"{total_count} — numerator and denominator disagree on which "
+                    f"rows are in scope"
+                )
             pass_rate = round((pass_count / total_count) * 100, 1) if total_count > 0 else 0
             status = "pass" if pass_rate == 100 else "warn" if pass_rate >= 90 else "fail"
 
