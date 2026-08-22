@@ -4,6 +4,7 @@ Real DE techniques with LLM-powered insight generation.
 """
 import statistics
 from app.services.query_executor import query_executor
+from app.services.identifier_guard import validate_column
 from app.llm.mistral_client import llm
 import logging
 
@@ -12,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 def detect_numeric_anomalies(table: str, column: str) -> dict:
     """Detect anomalies in a numeric column using Z-score + IQR."""
+    # Whitelist identifiers against the live schema before interpolation.
+    table, column = validate_column(table, column)
     try:
         result = query_executor.run(
             f"SELECT CAST({column} AS FLOAT) FROM {table} WHERE {column} IS NOT NULL LIMIT 500"

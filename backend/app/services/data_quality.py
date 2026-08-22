@@ -2,6 +2,7 @@
 Data Quality Service — runs NULL checks, duplicate checks, and LLM recommendations.
 """
 from app.services.query_executor import query_executor
+from app.services.identifier_guard import validate_table, validate_column
 from app.llm.mistral_client import llm
 import logging
 
@@ -10,6 +11,18 @@ logger = logging.getLogger(__name__)
 
 def run_quality_checks(table_name: str, columns: list) -> dict:
     checks = []
+
+    # Whitelist the table, then keep only columns that genuinely belong to it,
+    # so nothing outside the live schema reaches the interpolated queries below.
+    table_name = validate_table(table_name)
+    safe_columns = []
+    for col in columns:
+        try:
+            validate_column(table_name, col["name"])
+            safe_columns.append(col)
+        except Exception:
+            logger.warning(f"Skipping unknown column {table_name}.{col.get('name')!r}")
+    columns = safe_columns
 
     # Get total row count
     total_result = query_executor.run(f"SELECT COUNT(*) FROM {table_name}")

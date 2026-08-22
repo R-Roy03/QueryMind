@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from app.services.pii_scanner import scan_full_schema_for_pii, scan_column_for_pii
+from app.services.identifier_guard import InvalidIdentifierError
 
 router = APIRouter()
 
@@ -18,5 +19,7 @@ def scan_column(table: str, column: str):
     """PII scan for a specific column."""
     try:
         return scan_column_for_pii(table, column)
+    except InvalidIdentifierError as e:
+        raise HTTPException(400, detail=str(e))
     except Exception as e:
         raise HTTPException(500, detail=str(e))

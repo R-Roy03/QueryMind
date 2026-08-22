@@ -4,6 +4,7 @@ Data Quality Router — scan tables for quality issues.
 from fastapi import APIRouter, HTTPException
 from app.services.data_quality import run_quality_checks
 from app.services.schema_extractor import schema_extractor
+from app.services.identifier_guard import InvalidIdentifierError
 
 router = APIRouter()
 
@@ -44,5 +45,7 @@ def scan_table(table_name: str):
         return run_quality_checks(table['name'], table['columns'])
     except HTTPException:
         raise
+    except InvalidIdentifierError as e:
+        raise HTTPException(400, detail=str(e))
     except Exception as e:
         raise HTTPException(500, detail=str(e))

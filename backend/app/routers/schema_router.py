@@ -3,6 +3,7 @@ Schema Router — exposes database schema info to the frontend.
 """
 from fastapi import APIRouter, HTTPException
 from app.services.schema_extractor import schema_extractor
+from app.services.identifier_guard import validate_column, InvalidIdentifierError
 
 router = APIRouter()
 
@@ -21,6 +22,9 @@ def profile_column(table_name: str, column_name: str):
     """Get data profile for a specific column."""
     try:
         from app.services.query_executor import query_executor
+
+        # Whitelist identifiers against the live schema before interpolation.
+        table_name, column_name = validate_column(table_name, column_name)
 
         stats_sql = f"""
             SELECT 
@@ -59,5 +63,7 @@ def profile_column(table_name: str, column_name: str):
                 for r in top_values['rows']
             ]
         }
+    except InvalidIdentifierError as e:
+        raise HTTPException(400, detail=str(e))
     except Exception as e:
         raise HTTPException(500, detail=str(e))

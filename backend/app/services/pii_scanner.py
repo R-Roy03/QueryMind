@@ -5,6 +5,7 @@ Uses regex patterns + column name heuristics + LLM governance advice.
 import re
 import logging
 from app.services.query_executor import query_executor
+from app.services.identifier_guard import validate_column
 from app.llm.mistral_client import llm
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,9 @@ SEVERITY_ORDER = ["medium", "high", "critical"]
 
 def scan_column_for_pii(table_name: str, column_name: str) -> dict:
     """Scan a single column for PII using patterns + name heuristics."""
+    # Whitelist both identifiers against the live schema before they are ever
+    # interpolated into the SQL below — see identifier_guard.
+    table_name, column_name = validate_column(table_name, column_name)
     try:
         result = query_executor.run(
             f"SELECT CAST({column_name} AS TEXT) FROM {table_name} "
