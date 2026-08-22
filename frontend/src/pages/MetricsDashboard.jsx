@@ -68,7 +68,7 @@ export default function MetricsDashboard() {
   if (!data) return null;
 
   const biz = data.business_metrics;
-  const pipe = data.pipeline_metrics;
+  const overview = data.dataset_overview;
   const charts = data.charts;
 
   return (
@@ -95,21 +95,21 @@ export default function MetricsDashboard() {
         ))}
       </div>
 
-      {/* Pipeline Health Bar */}
+      {/* Dataset Overview */}
       <motion.div variants={staggerItem}>
         <Card className="mb-6 p-5">
           <div
             className="text-xs font-bold tracking-[0.1em] uppercase mb-5"
             style={{ color: "var(--text-muted)" }}
           >
-            Pipeline Operations Today
+            Dataset Overview
           </div>
           <div className="flex gap-7 flex-wrap">
             {[
-              { icon: "✅", label: "Successful", value: pipe.pipelines_succeeded_today, color: "#10B981" },
-              { icon: "❌", label: "Failed", value: pipe.pipelines_failed_today, color: "#EF4444" },
-              { icon: "⚡", label: "Rows Processed", value: pipe.rows_processed_today?.toLocaleString(), color: "#06B6D4" },
-              { icon: "🕐", label: "Data Freshness", value: `${pipe.data_freshness_minutes} min ago`, color: "#F59E0B" },
+              { icon: "📦", label: "Total Rows", value: overview.total_rows?.toLocaleString(), color: "#06B6D4" },
+              { icon: "✅", label: "Delivered Orders", value: overview.delivered_orders?.toLocaleString(), color: "#10B981" },
+              { icon: "🗄️", label: "Tables Tracked", value: overview.tables_tracked, color: "#8B5CF6" },
+              { icon: "🗓️", label: "Data Coverage", value: `${overview.data_from} → ${overview.data_to}`, color: "#F59E0B" },
             ].map((s) => (
               <div key={s.label} className="flex items-center gap-2">
                 <span className="text-base">{s.icon}</span>

@@ -1,13 +1,12 @@
 """
-Metrics Engine — Computes live business + pipeline metrics from the Olist database.
+Metrics Engine — Computes live business metrics and dataset overview from the Olist database.
 """
 from app.services.query_executor import query_executor
-import random
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 def get_live_metrics() -> dict:
-    """Compute live metrics from the Olist Brazilian E-Commerce database + simulated pipeline stats."""
+    """Compute live business metrics and a real dataset overview from the Olist Brazilian E-Commerce database."""
     try:
         total_orders = query_executor.run("SELECT COUNT(*) FROM olist_orders")['rows'][0][0]
         total_revenue = query_executor.run(
@@ -57,18 +56,48 @@ def get_live_metrics() -> dict:
             for r in daily_orders['rows']
         ]
 
+        # Real dataset overview — every value here is queried from the connected
+        # database, not fabricated. Replaces a former block of random.randint()
+        # "pipeline" numbers that were rendered next to the real KPIs and
+        # reshuffled on every refresh. The Olist data is a static historical
+        # export, so "operations today" telemetry has no real source; these are
+        # facts about the data that actually loaded.
+        core_tables = [
+            "olist_orders", "olist_customers", "olist_products",
+            "olist_order_items", "olist_order_payments",
+            "olist_order_reviews", "olist_sellers",
+        ]
+        total_rows = 0
+        tables_tracked = 0
+        for t in core_tables:
+            try:
+                total_rows += query_executor.run(f"SELECT COUNT(*) FROM {t}")['rows'][0][0]
+                tables_tracked += 1
+            except Exception:
+                # A table absent from the connected DB is skipped, not fatal.
+                pass
+
+        delivered_orders = query_executor.run(
+            "SELECT COUNT(*) FROM olist_orders WHERE order_status = 'delivered'"
+        )['rows'][0][0]
+        oldest = query_executor.run(
+            "SELECT MIN(order_purchase_timestamp) FROM olist_orders"
+        )['rows'][0][0]
+        newest = query_executor.run(
+            "SELECT MAX(order_purchase_timestamp) FROM olist_orders"
+        )['rows'][0][0]
+
+        dataset_overview = {
+            "total_rows": total_rows,
+            "tables_tracked": tables_tracked,
+            "delivered_orders": delivered_orders,
+            # Trim to YYYY-MM; this is a fixed historical range, not a live clock.
+            "data_from": str(oldest)[:7] if oldest else None,
+            "data_to": str(newest)[:7] if newest else None,
+        }
+
     except Exception as e:
         return {"error": str(e)}
-
-    pipeline_metrics = {
-        "rows_processed_today": random.randint(45000, 120000),
-        "pipelines_running": random.randint(0, 2),
-        "pipelines_succeeded_today": random.randint(8, 15),
-        "pipelines_failed_today": random.randint(0, 2),
-        "avg_pipeline_duration_s": random.randint(45, 180),
-        "data_freshness_minutes": random.randint(2, 15),
-        "last_pipeline_run": (datetime.now() - timedelta(minutes=random.randint(5, 45))).isoformat(),
-    }
 
     return {
         "timestamp": datetime.now().isoformat(),
@@ -79,7 +108,7 @@ def get_live_metrics() -> dict:
             "pending_orders": pending_orders,
             "total_events": total_events,
         },
-        "pipeline_metrics": pipeline_metrics,
+        "dataset_overview": dataset_overview,
         "charts": {
             "revenue_by_region": region_data,
             "orders_by_status": status_data,
